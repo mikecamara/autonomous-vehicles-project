@@ -12,8 +12,6 @@ import tensorflow as tf
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 
-
-
 EDGETPU_SHARED_LIB = {
   'Linux': 'libedgetpu.so.1',
   'Darwin': 'libedgetpu.1.dylib',
@@ -121,6 +119,7 @@ def set_input(interpreter, size, resize):
   Returns:
     Actual resize ratio, which should be passed to `get_output` function.
   """
+
   width, height = input_size(interpreter)
   w, h = size
   scale = min(width / w, height / h)
@@ -142,7 +141,6 @@ def get_output(interpreter, score_threshold, image_scale=(1.0, 1.0)):
   class_ids = output_tensor(interpreter, 1)
   scores = output_tensor(interpreter, 2)
   count = int(output_tensor(interpreter, 3))
-
   width, height = input_size(interpreter)
   image_scale_x, image_scale_y = image_scale
   sx, sy = width / image_scale_x, height / image_scale_y
@@ -198,44 +196,6 @@ def draw_objects(draw, objs, labels):
             '%s\n%.2f' % (labels.get(obj.id, obj.id), obj.score),
             fill='red')
 
-def generate_image_adversary(model, image, loss, label, eps=2 / 255.0):
-	# cast the image
-    image = tf.cast(image, tf.float32)
-      
-    # record our gradients
-    with tf.GradientTape() as tape:
-      # explicitly indicate that our image should be tacked for
-      # gradient updates
-
-      x = tf.constant(4.0)
-
-      tape.watch(image)
-
-      # tape.watch(x)
-
-      # y = x * x * x
-
-      # use our model to make predictions on the input image and
-      # then compute the loss
-      # pred = model(image)
-      # loss = MSE(label, pred)
-      
-
-
-      # calculate the gradients of loss with respect to the image, then
-      # compute the sign of the gradient
-      gradient = tape.gradient(loss, image)
-
-
-      # gradient = tape.gradient(y, x)
-      signedGrad = tf.sign(gradient)
-
-      # construct the image adversary
-      adversary = (image + (signedGrad * eps)).numpy()
-
-    # return the image adversary to the calling function
-    return adversary
-
 class StopSignDetector(object):
     '''
     Requires an EdgeTPU for this part to work
@@ -244,26 +204,27 @@ class StopSignDetector(object):
     We are just using a pre-trained model (MobileNet V2 SSD) provided by Google.
     '''
 
-    def __init__(self, min_score, show_bounding_box, debug=False):
+    def __init__(self, min_score, show_bounding_box, kl, debug=False):
         self.STOP_SIGN_CLASS_ID = 12
         self.TRAFFIC_LIGHT_CLASS_ID = 9
+        self.kl = kl
+        self.epsilon = 2.0
         self.min_score = min_score
         self.show_bounding_box = show_bounding_box
         self.debug = debug
         self.labels = load_labels("coco_labels.txt") if "coco_labels.txt" else {}
         self.interpreter = make_interpreter("ssd_mobilenet_v2_coco_quant_postprocess_edgetpu.tflite")
 
-        self.pretrained_model = tf.keras.applications.MobileNetV2(include_top=True,
-                                                     weights='imagenet')
-        self.pretrained_model.trainable = False
-        # ImageNet labels
-        self.decode_predictions = tf.keras.applications.mobilenet_v2.decode_predictions
+        # self.pretrained_model = tf.keras.applications.MobileNetV2(include_top=True,
+        #                                              weights='imagenet')
+        # self.pretrained_model.trainable = False
+        # # ImageNet labels
+        # self.decode_predictions = tf.keras.applications.mobilenet_v2.decode_predictions
                 
 
 
     def convertImageArrayToPILImage(self, img_arr):
         img = Image.fromarray(img_arr.astype('uint8'), 'RGB')
-
         return img
 
 
@@ -279,15 +240,78 @@ class StopSignDetector(object):
     def get_imagenet_label(probs):
       return decode_predictions(probs, top=1)[0][0]
 
+
+    def adversarial_pattern(self, image, label):
+      image = tf.cast(image, tf.float32)
+      with tf.GradientTape() as tape:
+          tape.watch(image)
+          prediction = self.kl.model(image)
+          loss = tf.keras.losses.MSE(label, prediction)
+      
+      gradient = tape.gradient(loss, image)
+      signed_grad = tf.sign(gradient)
+      
+      return signed_grad
+
+
     '''
     Return an object if there is a traffic light in the frame
     '''
-    def detect_stop_sign (self, img_arr):
+    def detect_stop_sign(self, img_arr):
         
-        self.interpreter.allocate_tensors()
         image = self.convertImageArrayToPILImage(img_arr)
+        self.interpreter.allocate_tensors()
+
+
+        # # mpl.rcParams['figure.figsize'] = (8, 8)
+        # # mpl.rcParams['axes.grid'] = False
+        # # image = tf.cast(image, tf.float32)
+        # # image = tf.image.resize(image, (224, 224))
+        # # image = tf.keras.applications.mobilenet_v2.preprocess_input(image)
+        # # image = image[None, ...]
+        # image_probs = self.pretrained_model.predict(image)
+        # # plt.figure()
+        # # plt.imshow(image[0] * 0.5 + 0.5)  # To change [-1, 1] to [0,1]
+        # _, image_class, class_confidence = self.decode_predictions(image_probs, top=1)[0][0]
+        # print('{} : {:.2f}% Confidence'.format(image_class, class_confidence*100))
+        # # plt.show()
+        # traffic_light = 9
+        # label = tf.one_hot(traffic_light, image_probs.shape[-1])
+        # label = tf.reshape(label, (1, image_probs.shape[-1]))
+        # loss_object = tf.keras.losses.CategoricalCrossentropy()
+        # with tf.GradientTape() as tape:  
+        #   tape.watch(image)
+        #   prediction = self.pretrained_model(image)
+        #   loss = loss_object(label, prediction)
+        # # Get the gradients of the loss w.r.t to the input image.
+        # gradient = tape.gradient(loss, image)
+        # # Get the sign of the gradients to create the perturbation
+        # signed_grad = tf.sign(gradient)
+        # epsilons = [0, 0.01, 0.1, 0.15]
+        # descriptions = [('Epsilon = {:0.3f}'.format(eps) if eps else 'Input') for eps in epsilons]
+        # # for i, eps in enumerate(epsilons):
+        # #   print("i is")
+        # #   print(i)
+        # #   # adv_x = image + eps*signed_grad
+        # #   # adv_x = tf.clip_by_value(adv_x, -1, 1)
+        # #   adv_x = image + eps*signed_grad
+        # #   adv_x = tf.clip_by_value(adv_x, -1, 1)
+
+        # traffic_light = 12
+        # label = tf.one_hot(traffic_light, image_probs.shape[-1])
+        # label = tf.reshape(label, (1, image_probs.shape[-1]))
+        # loss_object = tf.keras.losses.CategoricalCrossentropy()
+        # with tf.GradientTape() as tape:  
+        #   tape.watch(image)
+        #   prediction = self.pretrained_model(image)
+        #   loss = loss_object(label, prediction)
+        # # Get the gradients of the loss w.r.t to the input image.
+        # gradient = tape.gradient(loss, image)
+
+
         scale = set_input( self.interpreter, image.size,
                                 lambda size: image.resize(size, Image.ANTIALIAS))
+ 
 
         # Start adversarial attack here
         # function to generate FGSM Fast Gradient Signed Method
@@ -295,72 +319,113 @@ class StopSignDetector(object):
         # (FGSM) attack as described in Explaining and Harnessing Adversarial 
         # Examples by Goodfellow et al. This was one of the first and most 
         # popular attacks to fool a neural network.
+        # which is a white box attack whose goal is to ensure misclassification. 
+        # A white box attack is where the attacker has complete access to the 
+        # model being attacked. 
         # Tutorial in https://www.tensorflow.org/tutorials/generative/adversarial_fgsm
 
-        mpl.rcParams['figure.figsize'] = (8, 8)
-        mpl.rcParams['axes.grid'] = False
-        image = tf.cast(image, tf.float32)
-        image = tf.image.resize(image, (224, 224))
-        image = tf.keras.applications.mobilenet_v2.preprocess_input(image)
-        image = image[None, ...]
-        image_probs = self.pretrained_model.predict(image)
-        # plt.figure()
-        # plt.imshow(image[0] * 0.5 + 0.5)  # To change [-1, 1] to [0,1]
-        _, image_class, class_confidence = self.decode_predictions(image_probs, top=1)[0][0]
-        print('{} : {:.2f}% Confidence'.format(image_class, class_confidence*100))
-        # plt.show()
-        traffic_light = 9
-        label = tf.one_hot(traffic_light, image_probs.shape[-1])
-        label = tf.reshape(label, (1, image_probs.shape[-1]))
-        loss_object = tf.keras.losses.CategoricalCrossentropy()
-        with tf.GradientTape() as tape:  
-          tape.watch(image)
-          prediction = self.pretrained_model(image)
-          loss = loss_object(label, prediction)
-        # Get the gradients of the loss w.r.t to the input image.
-        gradient = tape.gradient(loss, image)
-        # Get the sign of the gradients to create the perturbation
-        signed_grad = tf.sign(gradient)
-        epsilons = [0, 0.01, 0.1, 0.15]
-        descriptions = [('Epsilon = {:0.3f}'.format(eps) if eps else 'Input') for eps in epsilons]
-        for i, eps in enumerate(epsilons):
-          adv_x = image + eps*signed_grad
-          adv_x = tf.clip_by_value(adv_x, -1, 1)
-          _, label, confidence = self.decode_predictions(self.pretrained_model.predict(adv_x), top=1)[0][0]
-          # plt.figure()
-          # plt.imshow(image[0]*0.5+0.5)
-          print('{} \n {} : {:.2f}% Confidence'.format(descriptions[i], label, confidence*100))
-          # plt.show()
-        # END adversarial attack
+        # mpl.rcParams['figure.figsize'] = (8, 8)
+        # mpl.rcParams['axes.grid'] = False
+
+        
+        # image = tf.cast(image, tf.float32)
+        # print("image 1")
+        # print(image)
+        # image = tf.image.resize(image, (224, 224))
+        # print("image 2")
+        # print(image)
+        # image = tf.keras.applications.mobilenet_v2.preprocess_input(image)
+        # print("image 3")
+        # print(image)
+        # image = image[None, ...]
+        # print("image 4")
+        # print(image)
+        # image_probs = self.pretrained_model.predict(image)
+        # print("iimage_probs")
+        # print(image_probs)
+        # # plt.figure()
+        # # plt.imshow(image[0] * 0.5 + 0.5)  # To change [-1, 1] to [0,1]
+        # _, image_class, class_confidence = self.decode_predictions(image_probs, top=1)[0][0]
+        # print('{} : {:.2f}% Confidence'.format(image_class, class_confidence*100))
+        # # plt.show()
+        # traffic_light = 12
+        # label = tf.one_hot(traffic_light, image_probs.shape[-1])
+        # print("image_probs.shape[-1]")
+        # print(image_probs.shape[-1])
+        # print("label 1")
+        # print(label)
+        # label = tf.reshape(label, (1, image_probs.shape[-1]))
+        # print("label 2")
+        # print(label)
+        # loss_object = tf.keras.losses.CategoricalCrossentropy()
+        # print("loss_object")
+        # print(loss_object)
+        # with tf.GradientTape() as tape:  
+        #   tape.watch(image)
+        #   prediction = self.pretrained_model(image)
+        #   print("prediction")
+        #   print(prediction)
+        #   loss = loss_object(label, prediction)
+        #   print("loss")
+        #   print(loss)
+        # # Get the gradients of the loss w.r.t to the input image.
+        # gradient = tape.gradient(loss, image)
+        # print("gradient")
+        # print(gradient)
+        # # Get the sign of the gradients to create the perturbation
+        # signed_grad = tf.sign(gradient)
+        # print("signed_grad")
+        # print(signed_grad)
+        # epsilons = [0, 0.01, 0.1, 0.15]
+        # descriptions = [('Epsilon = {:0.3f}'.format(eps) if eps else 'Input') for eps in epsilons]
+        # for i, eps in enumerate(epsilons):
+        #   print("i is")
+        #   print(i)
+        #   adv_x = image + eps*signed_grad
+        #   print("adv_x 1")
+        #   print(adv_x)
+        #   adv_x = tf.clip_by_value(adv_x, -1, 1)
+        #   print("adv_x 2")
+        #   print(adv_x)
+        #   _, label, confidence = self.decode_predictions(self.pretrained_model.predict(adv_x), top=1)[0][0]
+        #   plt.title(label)
+        #   plt.xlabel(confidence*100)
+        #   plt.imshow(image[0]*0.5+0.5)
+        #   plt.show()
+        #   plt.savefig('stopsygn' + str(i) + '.png')
+        #   # mpl.savefig
+        #   # plt.figure()
+        #   # plt.imshow(image[0]*0.5+0.5)
+        #   print('{} \n {} : {:.2f}% Confidence'.format(descriptions[i], label, confidence*100))
+        #   # plt.show()
+
+        # # END adversarial attack
 
 
-
-
-        print('----INFERENCE TIME----')
-        print('Note: The first inference is slow because it includes',
-                'loading the model into Edge TPU memory.')
+        # print('----INFERENCE TIME----')
+        # print('Note: The first inference is slow because it includes',
+        #         'loading the model into Edge TPU memory.')
         start = time.perf_counter()
         self.interpreter.invoke()
         inference_time = time.perf_counter() - start
         objs = get_output(self.interpreter, 0.2, scale)
-        print('%.2f ms' % (inference_time * 1000))
-        print('-------RESULTS--------')
+        # print('%.2f ms' % (inference_time * 1000))
+        # print('-------RESULTS--------')
         if not objs:
             print('No objects detected')
 
         max_score = 0
         traffic_light_obj = None
         for obj in objs:
-            print( self.labels.get(obj.id, obj.id))
-
-            print('  id:    ', obj.id)
-            print('  score: ', obj.score)
-            print('  bbox:  ', obj.bbox)
+            # print( self.labels.get(obj.id, obj.id))
+            # print('  id:    ', obj.id)
+            # print('  score: ', obj.score)
+            # print('  bbox:  ', obj.bbox)
             if (obj.id == self.STOP_SIGN_CLASS_ID or obj.id == self.TRAFFIC_LIGHT_CLASS_ID):
                 if self.debug:
                     print("stop sign detected, score = {}".format(obj.score))
                 if (obj.score > max_score):
-                    print(obj.bbox)
+                    print("heeey stop sign detected, score = {}".format(obj.score))
                     traffic_light_obj = obj
                     max_score = obj.score
 
@@ -378,12 +443,28 @@ class StopSignDetector(object):
         if img_arr is None:
             return throttle, img_arr
 
+        imagem = img_arr.reshape((1,) + img_arr.shape)
+        ang = self.kl.model.predict(imagem)
+        
+        perturbation = self.adversarial_pattern(imagem, ang).numpy()
+        perturb = ((perturbation[0]*0.5 + 0.5)*255)-50
+        adv_img = np.clip(img_arr + (perturb*self.epsilon), 0, 255)
+        adv_img = adv_img.astype(int)
+        
+        # plt.imshow(adv_img)
+        # plt.show()
+        # plt.savefig('stopadv1000.png')
+
+        adv_img_array = adv_img
+
         # Detect traffic light object
-        traffic_light_obj = self.detect_stop_sign(img_arr)
+        traffic_light_obj = self.detect_stop_sign(adv_img_array)
+        # traffic_light_obj = self.detect_stop_sign(img_arr)
 
         if traffic_light_obj:
             # if self.show_bounding_box:
             #     self.draw_bounding_box(traffic_light_obj, img_arr)
-            return 0, img_arr
+            return 0, adv_img_array
         else:
-            return throttle, img_arr
+            return throttle, adv_img_array
+            # return throttle, img_arr

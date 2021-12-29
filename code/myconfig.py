@@ -61,6 +61,8 @@ DRIVE_TRAIN_TYPE = "MM1" # SERVO_ESC|DC_STEER_THROTTLE|DC_TWO_WHEEL|DC_TWO_WHEEL
 # 
 # #THROTTLE
 # THROTTLE_CHANNEL = 0            #channel on the 9685 pwm board 0-15
+# THROTTLE_FORWARD_PWM = 430      #pwm value for max forward throttle
+
 THROTTLE_FORWARD_PWM = 430      #pwm value for max forward throttle
 THROTTLE_STOPPED_PWM = 370      #pwm value for no movement
 THROTTLE_REVERSE_PWM = 320      #pwm value for max reverse throttle
@@ -167,7 +169,9 @@ ROI_CROP_TOP = 40                    #the number of rows of pixels to ignore on 
 # 
 # #JOYSTICK
 # USE_JOYSTICK_AS_DEFAULT = True      #when starting the manage.py, when True, will not require a --js option to use the joystick
-JOYSTICK_MAX_THROTTLE = 1.0         #this scalar is multiplied with the -1 to 1 throttle value to limit the maximum throttle. This can help if you drop the controller or just don't need the full speed available.
+# JOYSTICK_MAX_THROTTLE = 1.0         #this scalar is multiplied with the -1 to 1 throttle value to limit the maximum throttle. This can help if you drop the controller or just don't need the full speed available.
+JOYSTICK_MAX_THROTTLE = 0.89         #this scalar is multiplied with the -1 to 1 throttle value to limit the maximum throttle. This can help if you drop the controller or just don't need the full speed available.
+
 # JOYSTICK_STEERING_SCALE = 1.0       #some people want a steering that is less sensitve. This scalar is multiplied with the steering -1 to 1. It can be negative to reverse dir.
 # AUTO_RECORD_ON_THROTTLE = True      #if true, we will record whenever throttle is not zero. if false, you must manually toggle recording with some other trigger. Usually circle button on joystick.
 CONTROLLER_TYPE = 'ps3'            #(ps3|ps4|xbox|nimbus|wiiu|F710|rc3|MM1|custom) custom will run the my_joystick.py controller written by the `donkey createjs` command
@@ -202,7 +206,9 @@ IMU_DLP_CONFIG = 2              # Digital Lowpass Filter setting (0:250Hz, 1:184
 # #ROBOHAT MM1
 # HAVE_ROBOHAT = True            # set to true when using the Robo HAT MM1 from Robotics Masters.  This will change to RC Control.
 MM1_STEERING_MID = 1550         # Adjust this value if your car cannot run in a straight line
+# MM1_MAX_FORWARD = 1620          # Max throttle to go fowrward. The bigger the faster
 MM1_MAX_FORWARD = 1620          # Max throttle to go fowrward. The bigger the faster
+
 MM1_STOPPED_PWM = 1500
 MM1_MAX_REVERSE = 1350          # Max throttle to go reverse. The smaller the faster
 MM1_SHOW_STEERING_VALUE = False
@@ -238,7 +244,7 @@ MM1_SERIAL_PORT = '/dev/ttyS0'  # Serial Port for reading and sending MM1 data.
 # HAVE_PERFMON = False
 # 
 # #RECORD OPTIONS
-# RECORD_DURING_AI = False        #normally we do not record during ai mode. Set this to true to get image and steering records for your Ai. Be careful not to use them to train.
+RECORD_DURING_AI = True        #normally we do not record during ai mode. Set this to true to get image and steering records for your Ai. Be careful not to use them to train.
 AUTO_CREATE_NEW_TUB = True     #create a new tub (tub_YY_MM_DD) directory when recording or append records to data directory directly
 # 
 # #LED
@@ -325,10 +331,12 @@ AUTO_CREATE_NEW_TUB = True     #create a new tub (tub_YY_MM_DD) directory when r
 # AI_LAUNCH_KEEP_ENABLED = False      # when False ( default) you will need to hit the AI_LAUNCH_ENABLE_BUTTON for each use. This is safest. When this True, is active on each trip into "local" ai mode.
 # 
 # #Scale the output of the throttle of the ai pilot for all model types.
-# AI_THROTTLE_MULT = 1.0              # this multiplier will scale every throttle value for all output from NN models
+AI_THROTTLE_MULT = 0.98            # this multiplier will scale every throttle value for all output from NN models
 # 
-AI_THROTTLE_MULT = 0.99
-AI_LAUNCH_THROTTLE = 2.0 
+# AI_THROTTLE_MULT = 1
+# AI_THROTTLE_MULT = 1.00
+
+# AI_LAUNCH_THROTTLE = 2.0 
 # #Path following
 # PATH_FILENAME = "donkey_path.pkl"   # the path will be saved to this filename
 # PATH_SCALE = 5.0                    # the path display will be scaled by this factor in the web page
@@ -348,6 +356,6 @@ AI_LAUNCH_THROTTLE = 2.0
 # REALSENSE_D435_ID = None        # serial number of camera or None if you only have one camera (it will autodetect)
 # 
 # # Stop Sign Detector
-# STOP_SIGN_DETECTOR = False
-# STOP_SIGN_MIN_SCORE = 0.2
-# STOP_SIGN_SHOW_BOUNDING_BOX = True
+STOP_SIGN_DETECTOR = True
+STOP_SIGN_MIN_SCORE = 0.2
+STOP_SIGN_SHOW_BOUNDING_BOX = True
